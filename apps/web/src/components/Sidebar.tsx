@@ -119,6 +119,14 @@ import {
 } from "../sidebarProjectGrouping";
 import { resolveProjectExpanded, useUiStateStore } from "../uiStateStore";
 import {
+  applyThreadStateGroups,
+  threadStateGroup,
+  threadStateGroupsApply,
+  useThreadStateGroupsStore,
+  type ThreadStateGroupView,
+} from "~/fork/threadStateGroups";
+import { ThreadStateGroupHeader } from "~/fork/ThreadStateGroupHeader";
+import {
   getThreadKeysToDeselectAfterDelete,
   useThreadSelectionStore,
 } from "../threadSelectionStore";
@@ -214,6 +222,7 @@ import {
   type SidebarListItem,
   type SidebarSection,
   resolveSidebarRowThreadId,
+  resolveThreadLastVisitedAt,
 } from "./Sidebar.logic";
 import {
   createSidebarCollisionDetection,
@@ -453,9 +462,17 @@ function useSidebarThreads(input: {
     folderGroups,
     keepEmptyFolders: keepEmpty,
   } = input;
+  const stateGroupsMode = useThreadStateGroupsStore((s) => s.mode);
+  const stateGroupsExpanded = useThreadStateGroupsStore((s) => s.expanded);
+  const localLastVisitedAtById = useUiStateStore((s) => s.threadLastVisitedAtById);
+  const groupsInFolders =
+    folderGroups !== null && threadStateGroupsApply(stateGroupsMode, "folders");
+  const groupsInList = folderGroups === null && threadStateGroupsApply(stateGroupsMode, "list");
   // Folders already separate the work, so boring mode has no Working shelf.
   const workingShelfEnabled =
-    useClientSettings((s) => s.sidebarWorkingShelfEnabled) && folderGroups === null;
+    useClientSettings((s) => s.sidebarWorkingShelfEnabled) &&
+    folderGroups === null &&
+    !groupsInList;
   const inboxReturnsVersion = useSyncExternalStore(
     inboxReturns.subscribe,
     inboxReturns.getSnapshot,
@@ -539,6 +556,26 @@ function useSidebarThreads(input: {
   const visibleWorkingThreads = workingShelfExpanded
     ? workingThreads
     : routeThreadOnly(workingThreads, routeRowThreadKey);
+  const stateGroupsNowIso = partition.snoozeNow;
+  const stateGroupsOf = (list: readonly EnvironmentThreadShell[], scopeKey: string) =>
+    applyThreadStateGroups({
+      threads: list,
+      scopeKey,
+      expanded: stateGroupsExpanded,
+      keyOf: threadShellKey,
+      keepKey: routeRowThreadKey,
+      groupOf: (thread) =>
+        threadStateGroup(thread, {
+          lastVisitedAt: resolveThreadLastVisitedAt(
+            thread.lastVisitedAt,
+            localLastVisitedAtById[threadShellKey(thread)],
+          ),
+          wokeAt: threadWokeAt(thread, { now: stateGroupsNowIso }),
+          nowMs: Date.parse(stateGroupsNowIso),
+        }),
+    });
+  const listStateGroups = groupsInList ? stateGroupsOf(activeThreads, "list") : null;
+  const activeListThreads = listStateGroups?.visible ?? activeThreads;
   const projectFolders =
     folderGroups === null
       ? null
@@ -547,13 +584,18 @@ function useSidebarThreads(input: {
             projectExpandedById,
             sidebarFolderExpansionKeys(folder.group),
           );
+          const stateGroups =
+            groupsInFolders && !collapsed
+              ? stateGroupsOf(folder.threads, folder.group.projectKey)
+              : null;
           return {
             group: folder.group,
             collapsed,
+            stateGroups: stateGroups?.groups ?? null,
             // A closed folder still shows the open thread, and hints at the rest.
             threads: collapsed
               ? routeThreadOnly(folder.threads, routeRowThreadKey)
-              : folder.threads,
+              : (stateGroups?.visible ?? folder.threads),
             hiddenThreads: collapsed
               ? folder.threads.filter((thread) => threadShellKey(thread) !== routeRowThreadKey)
               : EMPTY_THREADS,
@@ -562,7 +604,7 @@ function useSidebarThreads(input: {
   const orderedThreads = withNestedThreads(partition.nesting, nestedCollapsedKeys, [
     ...pinnedThreads,
     ...(projectFolders === null
-      ? activeThreads
+      ? activeListThreads
       : projectFolders.flatMap((folder) => folder.threads)),
     ...visibleWorkingThreads,
     ...visibleSnoozedThreads,
@@ -610,6 +652,8 @@ function useSidebarThreads(input: {
     workingShelfExpanded,
     toggleWorkingShelf: () => setWorkingShelfExpanded((value) => !value),
     projectFolders,
+    activeListThreads,
+    listStateGroups: listStateGroups?.groups ?? null,
     toggleProjectFolder: (group: SidebarProjectSnapshot) => {
       const keys = sidebarFolderExpansionKeys(group);
       setProjectExpanded(keys, !resolveProjectExpanded(projectExpandedById, keys));
@@ -1322,6 +1366,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     },
   );
 
+  const toggleStateGroup = useThreadStateGroupsStore((s) => s.toggle);
   const {
     workingShelfEnabled,
     pinnedThreads,
@@ -1345,6 +1390,8 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     workingShelfExpanded,
     toggleWorkingShelf,
     projectFolders,
+    activeListThreads,
+    listStateGroups,
     toggleProjectFolder,
     renderedSettledThreads,
     visibleSnoozedThreads,
@@ -1977,7 +2024,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     const pinnedRows = rowsOf(pinnedThreads, "pinned");
     items.push(...pinnedRows);
     items.push({ kind: "marker", marker: "pinned-divider" });
-    const activeRows = rowsOf(activeThreads, "active");
+    const activeRows = rowsOf(activeListThreads, "active");
     items.push({ kind: "marker", marker: "active-placeholder" });
     items.push(...activeRows);
     if (workingThreads.length > 0) {
@@ -3536,6 +3583,24 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                           },
                         }),
                       ];
+                      const renderStateGroups = (
+                        groups: readonly ThreadStateGroupView<EnvironmentThreadShell>[],
+                        scopeKey: string,
+                        folderRow?: string,
+                      ) =>
+                        groups.flatMap((entry) => [
+                          <ThreadStateGroupHeader
+                            key={`state-group:${scopeKey}:${entry.group}`}
+                            group={entry.group}
+                            count={entry.count}
+                            expanded={entry.expanded}
+                            onToggle={() => toggleStateGroup(scopeKey, entry.group)}
+                            inFolder={folderRow !== undefined}
+                          />,
+                          ...entry.threads.flatMap((thread) =>
+                            renderTreeRows(thread, "active", folderRow),
+                          ),
+                        ]);
                       const from = isContextDrag ? null : (dragState?.activeSection ?? null);
                       const items: ReactNode[] = [
                         <SidebarDraftBlock
@@ -3551,7 +3616,12 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                       for (const item of sidebarListItems) {
                         if (item.kind === "thread") {
                           // Folders draw active rows in their own place below.
-                          if (projectFolders !== null && item.section === "active") continue;
+                          if (
+                            (projectFolders !== null || listStateGroups !== null) &&
+                            item.section === "active"
+                          ) {
+                            continue;
+                          }
                           items.push(...renderTreeRows(threadByKey.get(item.key)!, item.section));
                           continue;
                         }
@@ -3568,6 +3638,16 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                                 onContextMenu={handleProjectFolderContextMenu}
                               />,
                             );
+                            if (folder.stateGroups !== null) {
+                              items.push(
+                                ...renderStateGroups(
+                                  folder.stateGroups,
+                                  folder.group.projectKey,
+                                  sidebarFolderRowId(folder.group.projectKey),
+                                ),
+                              );
+                              continue;
+                            }
                             for (const thread of folder.threads) {
                               items.push(
                                 ...renderTreeRows(
@@ -3620,6 +3700,9 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                                 isDropTarget={dragTargetSection === "active"}
                               />,
                             );
+                            if (listStateGroups !== null) {
+                              items.push(...renderStateGroups(listStateGroups, "list"));
+                            }
                             break;
                           case "working-header":
                             items.push(

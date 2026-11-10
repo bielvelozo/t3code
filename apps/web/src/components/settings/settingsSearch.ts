@@ -462,6 +462,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["hide fold running monitoring threads inbox sidebar shelf"],
   },
   {
+    id: "thread-state-groups",
+    title: "Status groups",
+    to: "/settings/general",
+    searchTerms: ["needs you working idle sidebar groups status"],
+  },
+  {
     id: "boring-sidebar",
     title: "Boring sidebar (group by project)",
     to: "/settings/labs",
