@@ -38,6 +38,7 @@ import * as ElectronApp from "../electron/ElectronApp.ts";
 import * as DesktopRendererHistory from "../telemetry/DesktopRendererHistory.ts";
 import { makeQuitShortcutHandler } from "./QuitHold.ts";
 import { copyContextMenuImage } from "./ContextMenuImage.ts";
+import { shouldOpenDevToolsOnLaunch } from "../fork/devTools.ts";
 
 const TITLEBAR_HEIGHT = 40;
 
@@ -878,7 +879,7 @@ export const make = Effect.gen(function* () {
     });
 
     loadApplication();
-    if (environment.isDevelopment) {
+    if (shouldOpenDevToolsOnLaunch(environment.isDevelopment)) {
       window.webContents.openDevTools({ mode: "detach" });
     }
 
