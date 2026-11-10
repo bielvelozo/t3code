@@ -4,6 +4,8 @@ import * as Path from "effect/Path";
 import * as PlatformError from "effect/PlatformError";
 import * as Schema from "effect/Schema";
 
+import { forkUserDataPathOverride } from "../fork/userData.ts";
+
 export class DesktopUserDataInitializationError extends Schema.TaggedError<DesktopUserDataInitializationError>()(
   "DesktopUserDataInitializationError",
   {
@@ -37,6 +39,8 @@ export const resolveUserDataPath = Effect.fn("desktop.userData.resolveUserDataPa
     readonly isDevelopment: boolean;
     readonly platform: NodeJS.Platform;
   }) {
+    const override = forkUserDataPathOverride();
+    if (override !== null) return override;
     const fs = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
     const names = input.isDevelopment

@@ -2,7 +2,7 @@
 
 Personal fork of [pingdotgg/t3code](https://github.com/pingdotgg/t3code). The `custom` branch is upstream `main` plus the fork commits on top. `main` stays a plain mirror of upstream.
 
-Fork-owned files: `FORK.md`, `fork/`, `apps/web/src/fork/`, and `apps/server/src/fork/`. Everything else is upstream, including the line in `AGENTS.md` that points here.
+Fork-owned files: `FORK.md`, `fork/`, `apps/web/src/fork/`, `apps/server/src/fork/`, and `apps/desktop/src/fork/`. Everything else is upstream, including the line in `AGENTS.md` that points here.
 
 ## Add a change
 
@@ -12,7 +12,7 @@ Every change goes through a pull request into `custom`. Do not commit or push to
 - Keep fork changes free of database migrations. An upstream build cannot open a database that has a migration it does not know, so going back to the official app would fail.
 
 1. `git fetch origin && git switch -c fork/<change> origin/custom`
-2. Put new code in new files under `fork/`, `apps/web/src/fork/`, or `apps/server/src/fork/`. In upstream files, change as few lines as possible, for example one import and one call. Each changed upstream line can conflict on a rebase.
+2. Put new code in new files under `fork/`, `apps/web/src/fork/`, `apps/server/src/fork/`, or `apps/desktop/src/fork/`. In upstream files, change as few lines as possible, for example one import and one call. Each changed upstream line can conflict on a rebase.
 3. Run the typecheck, the lint, the format check, and the tests of the area you changed: `vp run check:changed origin/custom`.
 4. Push the branch and open a pull request into `custom` with the title `fork: <change>`.
 5. Stop and ask the owner to approve. Merge only after the approval.
@@ -43,5 +43,19 @@ vp run dev --home-dir ~/.t3-fork
 ```
 
 `--home-dir` keeps the fork's data apart from the installed app in `~/.t3`. Never run the fork against `~/.t3`. Open the `pairingUrl` from the server log.
+
+### Built desktop app
+
+`vp run build:desktop` builds the web app, the server, and the Electron shell once. `vp run start:desktop` then opens it in seconds, with no dev server. Rebuild after you pull or change code.
+
+An unpackaged build calls itself the official app, so it would share the installed app's Electron profile and taskbar group. Give it its own with these variables:
+
+| Variable                           | Value                                               |
+| ---------------------------------- | --------------------------------------------------- |
+| `T3CODE_HOME`                      | `~/.t3-fork`                                        |
+| `T3CODE_DESKTOP_USER_DATA_DIR`     | a folder of its own, such as `~/.t3-fork/electron`  |
+| `T3CODE_DESKTOP_APP_USER_MODEL_ID` | an id of its own, such as `com.example.t3code.fork` |
+
+Updates stay off in an unpackaged build.
 
 On Windows with NTFS last-access updates on, `node --watch` restarts the server every time a file is read, so it never comes up. Locally, drop `--watch` from the `dev` script in `apps/server/package.json` and do not commit that change. Server changes then need a restart; the web app still reloads on its own.
